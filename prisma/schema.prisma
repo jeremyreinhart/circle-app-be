@@ -41,7 +41,6 @@ model Thread {
   id                Int      @id @default(autoincrement())
   content           String
   image             String?
-  number_of_replies Int      @default(0)
 
   created_at        DateTime @default(now())
   updated_at        DateTime @updatedAt
