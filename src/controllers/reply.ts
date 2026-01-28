@@ -32,7 +32,7 @@ export const createReply = async (req: AuthRequest, res: Response) => {
 
   // Ambil file image dari multer
   const file = req.file;
-  const imagePath = file ? `/uploads/replies/${file.filename}` : null; // sesuai folder destination multer
+  const imagePath = file ? `/uploads/replies/${file.filename}` : null;
 
   try {
     const reply = await prisma.reply.create({

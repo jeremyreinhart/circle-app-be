@@ -17,7 +17,7 @@ export const handleRegister = async (req: Request, res: Response) => {
     const user = await registerUser(username, full_name, email, password);
 
     res.status(201).json({
-      code: 200,
+      code: 201,
       status: "succes",
       message: "Registration Successful",
       data: {
@@ -63,7 +63,7 @@ export const handleLogin = async (req: Request, res: Response) => {
     res.status(500).json({
       code: 500,
       status: "error",
-      message: "Invalid Login",
+      message: "Username atau Password yang dimasukan salah",
     });
   }
 };
@@ -146,5 +146,29 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Failed to update profile" });
+  }
+};
+
+export const getAllUser = async (req: Request, res: Response) => {
+  try {
+    const allUser = await prisma.user.findMany({
+      orderBy: {
+        created_at: "asc",
+      },
+      select: {
+        id: true,
+        username: true,
+        full_name: true,
+        bio: true,
+        photo_profile: true,
+      },
+    });
+
+    res.status(200).json({
+      message: "success",
+      data: allUser,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };

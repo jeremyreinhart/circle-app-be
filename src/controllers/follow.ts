@@ -1,6 +1,7 @@
 import { Response } from "express";
 import { prisma } from "../prisma/client";
 import { AuthRequest } from "../types/user";
+import { io } from "../app";
 
 export const getFollows = async (req: AuthRequest, res: Response) => {
   try {
@@ -17,7 +18,7 @@ export const getFollows = async (req: AuthRequest, res: Response) => {
     if (type !== "followers" && type !== "following") {
       return res.status(400).json({
         status: "error",
-        message: "Invalid type. Use followers or following",
+        message: "Invalid type,use followers or following",
       });
     }
     if (type === "followers") {
@@ -33,6 +34,7 @@ export const getFollows = async (req: AuthRequest, res: Response) => {
               username: true,
               full_name: true,
               photo_profile: true,
+              bio: true,
             },
           },
         },
@@ -61,6 +63,7 @@ export const getFollows = async (req: AuthRequest, res: Response) => {
             name: fol.follower.full_name,
             avatar: fol.follower.photo_profile,
             is_following: followingSet.has(fol.follower.id),
+            bio: fol.follower.bio,
           })),
         },
       });
@@ -77,6 +80,7 @@ export const getFollows = async (req: AuthRequest, res: Response) => {
             username: true,
             full_name: true,
             photo_profile: true,
+            bio: true,
           },
         },
       },
@@ -90,6 +94,7 @@ export const getFollows = async (req: AuthRequest, res: Response) => {
           username: item.following.username,
           name: item.following.full_name,
           avatar: item.following.photo_profile,
+          bio: item.following.bio,
         })),
       },
     });
@@ -128,6 +133,34 @@ export const followUser = async (req: AuthRequest, res: Response) => {
       },
     });
 
+    // Get updated counts untuk follower (current user)
+    const followerCounts = await prisma.following.count({
+      where: { follower_id: followerId },
+    });
+
+    // Get updated counts untuk following (target user)
+    const followingCounts = await prisma.following.count({
+      where: { following_id: user_id },
+    });
+
+    // Emit real-time update ke current user (yang follow)
+    io.emit(`follow-update:${followerId}`, {
+      userId: followerId,
+      following: followerCounts,
+    });
+
+    // Emit real-time update ke target user (yang di-follow)
+    io.emit(`follow-update:${user_id}`, {
+      userId: user_id,
+      followers: followingCounts,
+    });
+
+    io.emit("follow-action", {
+      followerId: followerId,
+      followingId: user_id,
+      action: "follow",
+    });
+
     res.status(201).json({
       status: "success",
       message: "You have successfully followed the user.",
@@ -137,6 +170,7 @@ export const followUser = async (req: AuthRequest, res: Response) => {
       },
     });
   } catch (error) {
+    console.error("Follow error:", error);
     res.status(500).json({
       status: "error",
       message: "Failed to follow the user. Please try again later.",
@@ -165,6 +199,35 @@ export const unfollowUser = async (req: AuthRequest, res: Response) => {
       },
     });
 
+    // Get updated counts untuk follower (current user)
+    const followerCounts = await prisma.following.count({
+      where: { follower_id: followerId },
+    });
+
+    // Get updated counts untuk following (target user)
+    const followingCounts = await prisma.following.count({
+      where: { following_id: user_id },
+    });
+
+    // Emit real-time update ke current user (yang unfollow)
+    io.emit(`follow-update:${followerId}`, {
+      userId: followerId,
+      following: followerCounts,
+    });
+
+    // Emit real-time update ke target user (yang di-unfollow)
+    io.emit(`follow-update:${user_id}`, {
+      userId: user_id,
+      followers: followingCounts,
+    });
+
+    // Emit global event untuk update UI realtime
+    io.emit("follow-action", {
+      followerId: followerId,
+      followingId: user_id,
+      action: "unfollow",
+    });
+
     res.status(200).json({
       status: "success",
       message: "You have successfully unfollowed the user.",
@@ -174,9 +237,90 @@ export const unfollowUser = async (req: AuthRequest, res: Response) => {
       },
     });
   } catch (error) {
+    console.error("Unfollow error:", error);
     res.status(500).json({
       status: "error",
       message: "Failed to unfollow user",
+    });
+  }
+};
+
+export const getFollowsCount = async (req: AuthRequest, res: Response) => {
+  const userId = Number(req.params.userId);
+
+  if (!userId)
+    return res
+      .status(400)
+      .json({ status: "error", message: "Invalid user id" });
+
+  try {
+    const followers = await prisma.following.count({
+      where: { following_id: userId },
+    });
+    const following = await prisma.following.count({
+      where: { follower_id: userId },
+    });
+    res.json({ status: "success", data: { followers, following } });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: "Internal Server Error" });
+  }
+};
+
+export const getSuggestedUsers = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        status: "error",
+        message: "Unauthorized",
+      });
+    }
+
+    const userId = req.user.id;
+
+    // Ambil semua user yang sudah di-follow
+    const following = await prisma.following.findMany({
+      where: {
+        follower_id: userId,
+      },
+      select: {
+        following_id: true,
+      },
+    });
+
+    const followingIds = following.map((f) => f.following_id);
+
+    // Ambil 5 random users yang BUKAN current user dan BELUM di-follow
+    const suggestedUsers = await prisma.user.findMany({
+      where: {
+        id: {
+          notIn: [...followingIds, userId],
+        },
+      },
+      select: {
+        id: true,
+        username: true,
+        full_name: true,
+        photo_profile: true,
+        bio: true,
+      },
+      take: 5,
+      orderBy: {
+        id: "asc",
+      },
+    });
+
+    // Shuffle untuk membuat lebih random
+    const shuffled = suggestedUsers.sort(() => Math.random() - 0.5);
+
+    return res.status(200).json({
+      status: "success",
+      data: shuffled.slice(0, 5),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to fetch suggested users",
     });
   }
 };

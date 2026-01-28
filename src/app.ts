@@ -1,4 +1,6 @@
 import express from "express";
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpec = require("./docs/swagger");
 import userRoutes from "./routes/auth-user";
 import threadRoutes from "./routes/threads";
 import replyRoutes from "./routes/reply";
@@ -14,6 +16,7 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(cors({ credentials: true, origin: "http://localhost:5173" }));
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -47,4 +50,5 @@ io.on("connection", (socket) => {
 
 server.listen(PORT, () => {
   console.log(`Server running at PORT ${PORT}`);
+  console.log(`Swagger on http://localhost:${PORT}/api-docs`);
 });
